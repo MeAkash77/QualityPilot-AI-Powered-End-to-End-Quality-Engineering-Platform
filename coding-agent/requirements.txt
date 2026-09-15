@@ -1,0 +1,3 @@
+anthropic>=0.121.0
+python-dotenv>=1.2.2
+agentops>=0.4.21

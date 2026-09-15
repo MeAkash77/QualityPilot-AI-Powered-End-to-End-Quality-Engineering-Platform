@@ -1,0 +1,41 @@
+{
+  "name": "cypress-ts",
+  "version": "1.0.0",
+  "description": "Cypress TypeScript E2E + Component Testing — SauceDemo",
+  "scripts": {
+    "test":               "cypress run --browser chrome",
+    "test:smoke":         "cypress run --browser chrome --spec 'cypress/e2e/login.cy.ts,cypress/e2e/inventory.cy.ts'",
+    "test:regression":    "cypress run --browser chrome --spec 'cypress/e2e/**/*.cy.ts'",
+    "test:accessibility": "cypress run --browser chrome --spec 'cypress/e2e/accessibility.cy.ts'",
+    "test:performance":   "cypress run --browser chrome --spec 'cypress/e2e/performance.cy.ts'",
+    "test:firefox":       "cypress run --browser firefox",
+    "test:edge":          "cypress run --browser edge",
+    "test:component":     "cypress run --component",
+    "test:browserstack":  "browserstack-cypress run --sync",
+    "test:headed":        "cypress open",
+    "report":             "open cypress/reports/index.html",
+    "ai:generate":        "tsx ai-generator/generate-test.ts",
+    "ai:dry-run":         "tsx ai-generator/generate-test.ts --dry-run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk":              "^0.116.0"
+  },
+  "devDependencies": {
+    "cypress":                        "^15.20.0",
+    "typescript":                     "^7.0.2",
+    "tsx":                            "^4.23.11",
+    "react":                          "^19.2.8",
+    "react-dom":                      "^19.2.8",
+    "@types/react":                   "^19.2.18",
+    "@types/react-dom":               "^19.2.4",
+    "vite":                           "^8.2.1",
+    "@vitejs/plugin-react":           "^6.0.5",
+    "mocha-junit-reporter":           "^2.2.0",
+    "node-fetch":                     "^3.3.0",
+    "@shelex/cypress-allure-plugin":  "^2.40.2",
+    "cypress-axe":                    "^1.5.0",
+    "axe-core":                       "^4.13.0",
+    "browserstack-cypress-cli":        "^1.36.17",
+    "@cypress-audit/lighthouse":      "^1.4.0"
+  }
+}

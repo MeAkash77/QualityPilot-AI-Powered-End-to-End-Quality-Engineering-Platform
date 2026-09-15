@@ -1,0 +1,16 @@
+{
+  "name": "pact-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@pact-foundation/pact": "^17.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "@types/node": "^26.2.0"
+  }
+}

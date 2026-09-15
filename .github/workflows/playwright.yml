@@ -1,0 +1,214 @@
+name: playwright CI
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'playwright/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'playwright/**' ]
+  schedule:
+    # Run nightly at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: playwright   # all run steps default to this directory
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore PlaywrightDotNetFramework.sln
+
+      - name: Build solution
+        run: dotnet build PlaywrightDotNetFramework.sln --configuration Release --no-restore
+
+      - name: Install Playwright browsers
+        # npx uses the runner's pre-installed Node — no bundled binary issues.
+        # Microsoft.Playwright 1.52.* maps to npm playwright 1.52.0 (same Chromium build).
+        # --with-deps is omitted: Ubuntu 24.04 (github ubuntu-latest) ships all required
+        # Chromium system libs pre-installed.
+        run: npx --yes playwright@1.52.0 install chromium
+
+      - name: Run tests (CI settings)
+        run: >
+          dotnet test PlaywrightDotNetFramework.sln
+          --settings ci.runsettings
+          --configuration Release
+          --no-build
+          --logger "trx"
+          --logger "junit;LogFileName=junit-results.xml"
+          --logger "console;verbosity=normal"
+          --results-directory TestResults
+        env:
+          PLAYWRIGHT_HEADLESS: true
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      # ── DataDog CI Visibility ────────────────────────────────────────────
+      - name: Upload test results to Datadog CI Visibility
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://github.com/DataDog/datadog-ci/releases/latest/download/datadog-ci_linux-x64" \
+            --output /usr/local/bin/datadog-ci && chmod +x /usr/local/bin/datadog-ci
+          datadog-ci junit upload --service qa-automation-portfolio \
+            --tags framework:playwright \
+            TestResults/**/junit-results.xml
+        env:
+          DATADOG_API_KEY: ${{ secrets.DD_API_KEY }}
+          DATADOG_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      - name: Prepare workspace for ZAP
+        if: always()
+        # The ZAP container runs as a non-root user (zap/UID 1000) and needs write
+        # access to the workspace directory to generate its zap.yaml plan file.
+        run: chmod a+w ${{ github.workspace }}
+
+      - name: OWASP ZAP Baseline Scan
+        if: always()
+        uses: zaproxy/action-baseline@v0.15.0
+        continue-on-error: true
+        with:
+          target: 'https://www.saucedemo.com'
+          allow_issue_writing: false
+          cmd_options: '-I -J zap-report.json'
+
+      - name: Upload ZAP JSON report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-zap-report
+          path: zap-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results
+          path: playwright/allure-results/
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: playwright/TestResults/
+          retention-days: 7
+
+      # ── TypeScript Playwright Tests ──────────────────────────────────────
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: playwright/tests/playwright-ts/package-lock.json
+
+      - name: Install TypeScript dependencies
+        working-directory: playwright/tests/playwright-ts
+        run: npm ci
+
+      - name: Install Playwright browsers (TypeScript)
+        working-directory: playwright/tests/playwright-ts
+        run: npx playwright install chromium
+
+      - name: Run TypeScript Playwright tests
+        working-directory: playwright/tests/playwright-ts
+        run: npx playwright test --project=setup --project=chromium
+        env:
+          CI: 'true'
+          APP_USERNAME: standard_user
+          APP_PASSWORD: secret_sauce
+
+      - name: Run visual regression tests
+        if: always()
+        continue-on-error: true   # First run will fail (no baselines yet). Use visual-regression-update workflow to generate them.
+        working-directory: playwright/tests/playwright-ts
+        run: npx playwright test --grep "@visual" --project=setup --project=chromium
+        env:
+          CI: 'true'
+          APP_USERNAME: standard_user
+          APP_PASSWORD: secret_sauce
+
+      - name: Run Shopify storefront tests
+        if: always()
+        working-directory: playwright/tests/playwright-ts
+        run: npx playwright test --project=shopify || true
+        env:
+          CI: 'true'
+          SHOPIFY_STORE_URL: ${{ secrets.SHOPIFY_STORE_URL }}
+
+      - name: Generate TypeScript Allure report
+        if: always()
+        working-directory: playwright/tests/playwright-ts
+        run: npx allure generate allure-results --clean -o allure-report
+
+      - name: Upload TypeScript Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ts-allure-results
+          path: playwright/tests/playwright-ts/allure-results/
+          retention-days: 30
+
+      - name: Upload TypeScript Allure report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ts-allure-report
+          path: playwright/tests/playwright-ts/allure-report/
+          retention-days: 30
+
+      - name: Upload TypeScript Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ts-report
+          path: playwright/tests/playwright-ts/playwright-report/
+          retention-days: 30
+
+      - name: Upload TypeScript traces (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ts-traces
+          path: playwright/tests/playwright-ts/test-results/
+          retention-days: 7
+
+      - name: Upload visual regression snapshot diffs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-regression-diffs
+          path: playwright/tests/playwright-ts/test-results/**/*-diff.png
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # ── Testiny Test Management Sync ───────────────────────────────────
+      - name: Sync results to Testiny
+        if: always() && env.TESTINY_API_TOKEN != ''
+        continue-on-error: true
+        working-directory: playwright/tests/playwright-ts
+        run: |
+          npx @testiny/cli automation \
+            --project "$TESTINY_PROJECT" \
+            --source "playwright" \
+            --junit playwright-report/results.xml
+        env:
+          TESTINY_API_TOKEN: ${{ secrets.TESTINY_API_TOKEN }}
+          TESTINY_PROJECT: ${{ vars.TESTINY_PROJECT || 'qa-automation-portfolio' }}

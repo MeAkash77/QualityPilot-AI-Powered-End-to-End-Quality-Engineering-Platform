@@ -1,0 +1,20 @@
+# Dependabot is disabled in favor of the dependency-audit framework,
+# which scans all ecosystems (npm, pip, NuGet, Maven) in a single pass
+# and creates one consolidated PR per week.
+#
+# See: dependency-audit/README.md
+# Workflow: .github/workflows/dependency-audit.yml (Sunday 04:00 UTC)
+#
+# GitHub Actions versions are kept here since dependency-audit
+# does not cover the github-actions ecosystem.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      gha-deps:
+        patterns: ["*"]

@@ -1,0 +1,63 @@
+# ── C# / .NET ────────────────────────────────────────────────────────────────
+bin/
+obj/
+TestResults/
+allure-results/
+allure-report/
+traces/
+*.nupkg
+.nuget/
+.playwright/
+
+# ── Java / Maven ──────────────────────────────────────────────────────────────
+target/
+*.class
+*.jar
+!*-sources.jar
+
+# ── TypeScript / Node ─────────────────────────────────────────────────────────
+node_modules/
+playwright-report/
+test-results/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vs/
+.idea/
+*.iml
+*.user
+*.suo
+.vscode/
+
+# ── Mobile app binaries (large; download on demand) ──────────────────────────
+*.apk
+*.ipa
+*.app
+
+# ── Claude Code local settings ────────────────────────────────────────────────
+# Ignore .claude/ directories inside sub-frameworks (e.g., cypress/.claude/)
+*/.claude/
+# Ignore root .claude/ contents, then selectively re-include
+.claude/*
+!.claude/commands/
+!.claude/skills/
+!.claude/hooks/
+!.claude/settings.json
+# Ephemeral verification marker (session state, not source)
+.claude/hooks/.verified
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.coverage
+
+# ── Generated output ─────────────────────────────────────────────────────────
+claims-diff/output/
+
+# ── Profile data (may contain PII) ──────────────────────────────────────────
+job-agent/profile/*.png
+job-agent/profile/profile.md
+
+# ── Environment overrides (may contain secrets) ───────────────────────────────
+appsettings.local.json
+.env
+.env.local

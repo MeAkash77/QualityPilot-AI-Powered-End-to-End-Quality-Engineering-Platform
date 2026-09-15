@@ -1,0 +1,7 @@
+deepeval>=4.1.5,<5.0.0
+openai>=2.53.0
+chromadb>=1.5.9
+python-dotenv>=1.2.2
+pytest>=9.1.1
+requests>=2.34.2         # used by datadog_reporter; already a transitive dep via deepeval/chromadb
+pytest-rerunfailures>=16.4  # retries tests that fail due to transient OpenAI API timeouts

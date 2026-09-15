@@ -1,0 +1,114 @@
+name: selenium-java CI
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'selenium-java/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'selenium-java/**' ]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      test_browser:
+        description: 'Browser to run tests on'
+        required: false
+        default: 'chrome'
+        type: choice
+        options: [ chrome, firefox, edge ]
+      test_suite:
+        description: 'TestNG suite XML file'
+        required: false
+        default: 'testng.xml'
+      run_performance:
+        description: 'Run JMeter performance tests'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: selenium-java
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run TestNG suite
+        run: >
+          mvn clean test
+          -Dbrowser=${{ github.event.inputs.test_browser || 'chrome' }}
+          -Dheadless=true
+          -Dexecution_mode=local
+          -DsuiteXmlFile=${{ github.event.inputs.test_suite || 'testng.xml' }}
+          -Dgroups=smoke,regression
+        env:
+          SAUCE_USERNAME:    ${{ secrets.SAUCE_USERNAME }}
+          SAUCE_ACCESS_KEY:  ${{ secrets.SAUCE_ACCESS_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DD_API_KEY:        ${{ secrets.DD_API_KEY }}
+          DD_SITE:           ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      # ── DataDog CI Visibility ────────────────────────────────────────────
+      - name: Upload test results to Datadog CI Visibility
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://github.com/DataDog/datadog-ci/releases/latest/download/datadog-ci_linux-x64" \
+            --output /usr/local/bin/datadog-ci && chmod +x /usr/local/bin/datadog-ci
+          datadog-ci junit upload --service qa-automation-portfolio \
+            --tags framework:selenium-java \
+            target/surefire-reports/TEST-*.xml
+        env:
+          DATADOG_API_KEY: ${{ secrets.DD_API_KEY }}
+          DATADOG_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      - name: OWASP ZAP Baseline Scan
+        if: always()
+        uses: zaproxy/action-baseline@v0.15.0
+        continue-on-error: true
+        with:
+          target: 'https://www.saucedemo.com'
+          allow_issue_writing: false
+          cmd_options: '-I -J zap-report.json'
+
+      - name: Upload ZAP JSON report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: zap-report
+          path: zap-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Run JMeter performance tests
+        if: ${{ github.event.inputs.run_performance == 'true' }}
+        run: mvn jmeter:jmeter
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: selenium-java-allure-results
+          path: selenium-java/target/allure-results/
+          retention-days: 30
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: selenium-java-surefire-reports
+          path: selenium-java/target/surefire-reports/
+          retention-days: 7

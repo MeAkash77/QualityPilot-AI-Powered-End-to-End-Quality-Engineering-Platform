@@ -1,0 +1,178 @@
+name: cypress CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['cypress/**']
+  pull_request:
+    branches: [main]
+    paths: ['cypress/**']
+  schedule:
+    - cron: '0 5 * * *'    # nightly 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser'
+        required: false
+        default: 'chrome'
+        type: choice
+        options: [chrome, firefox, edge, electron]
+      test_type:
+        description: 'Test type'
+        required: false
+        default: 'e2e'
+        type: choice
+        options: [e2e, component, all]
+      execution_mode:
+        description: 'Execution environment'
+        required: false
+        default: 'local'
+        type: choice
+        options: [local, browserstack]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cypress
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: cypress/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── E2E tests (local / schedule / push / PR) ─────────────────────────────
+      - name: Run E2E tests
+        if: >
+          github.event.inputs.test_type != 'component' &&
+          (github.event_name != 'workflow_dispatch' || inputs.execution_mode != 'browserstack')
+        uses: cypress-io/github-action@v7
+        with:
+          working-directory: cypress
+          browser: ${{ github.event.inputs.browser || 'chrome' }}
+          install: false
+          env: 'allure=true'
+        env:
+          BASE_URL:   'https://www.saucedemo.com'
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      # ── E2E tests (BrowserStack cloud) ───────────────────────────────────────
+      - name: Run E2E tests (BrowserStack)
+        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'browserstack'
+        run: npx browserstack-cypress run --sync
+        env:
+          BROWSERSTACK_USERNAME:    ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY:  ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          BASE_URL:                 'https://www.saucedemo.com'
+
+      # ── Component tests ─────────────────────────────────────────────────────
+      - name: Run component tests
+        if: github.event.inputs.test_type == 'component' || github.event.inputs.test_type == 'all'
+        run: npm run test:component
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      # ── OWASP ZAP Baseline Scan ─────────────────────────────────────────────
+      - name: OWASP ZAP Baseline Scan
+        if: always()
+        uses: zaproxy/action-baseline@v0.15.0
+        continue-on-error: true
+        with:
+          target: 'https://www.saucedemo.com'
+          allow_issue_writing: false
+          cmd_options: '-I -J zap-report.json'
+
+      - name: Upload ZAP JSON report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cypress-zap-report
+          path: zap-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ── DataDog CI Visibility ───────────────────────────────────────────────
+      - name: Upload test results to Datadog CI Visibility
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://github.com/DataDog/datadog-ci/releases/latest/download/datadog-ci_linux-x64" \
+            --output /usr/local/bin/datadog-ci && chmod +x /usr/local/bin/datadog-ci
+          datadog-ci junit upload --service qa-automation-portfolio \
+            --tags framework:cypress \
+            test-results/*.xml
+        env:
+          DATADOG_API_KEY: ${{ secrets.DD_API_KEY }}
+          DATADOG_SITE:    ${{ vars.DD_SITE || 'datadoghq.com' }}
+
+      # ── Artifacts ───────────────────────────────────────────────────────────
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cypress-allure-results
+          path: cypress/allure-results/
+          retention-days: 7
+
+      - name: Upload videos and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cypress-recordings
+          path: |
+            cypress/cypress/videos/
+            cypress/cypress/screenshots/
+          retention-days: 7
+
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cypress-test-results
+          path: cypress/test-results/
+          retention-days: 30
+
+      # ── Allure GitHub Pages ─────────────────────────────────────────────────
+      - name: Build Allure Report
+        if: always()
+        uses: simple-elf/allure-report-action@master
+        with:
+          allure_results: cypress/allure-results
+          gh_pages: gh-pages
+          allure_report: allure-report
+          allure_history: allure-history
+
+      - name: Deploy Allure Report to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
+
+      # ── Testiny Test Management Sync ───────────────────────────────────
+      - name: Sync results to Testiny
+        if: always() && env.TESTINY_API_TOKEN != ''
+        continue-on-error: true
+        working-directory: cypress
+        run: |
+          npx @testiny/cli automation \
+            --project "$TESTINY_PROJECT" \
+            --source "cypress" \
+            --junit test-results/*.xml
+        env:
+          TESTINY_API_TOKEN: ${{ secrets.TESTINY_API_TOKEN }}
+          TESTINY_PROJECT: ${{ vars.TESTINY_PROJECT || 'qa-automation-portfolio' }}
